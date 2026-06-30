@@ -157,10 +157,15 @@ impl Input {
             self.col = prev_len;
         } else {
             let line = &mut self.lines[self.line];
-            // find previous char boundary
+            // Find the byte index where the character immediately before the
+            // cursor starts. self.col is always a char boundary, so we step
+            // back first, then walk over any continuation bytes.
             let mut idx = self.col;
-            while !line.is_char_boundary(idx) {
+            loop {
                 idx -= 1;
+                if line.is_char_boundary(idx) {
+                    break;
+                }
             }
             line.replace_range(idx..self.col, "");
             self.col = idx;
@@ -348,5 +353,42 @@ mod tests {
         i.delete_forward();
         assert_eq!(i.text(), "helo");
         assert_eq!(i.col, 2);
+    }
+
+    #[test]
+    fn backspace_removes_char_before_cursor() {
+        let mut i = from("hello");
+        i.backspace();
+        assert_eq!(i.text(), "hell");
+        assert_eq!(i.col, 4);
+    }
+
+    #[test]
+    fn backspace_mid_string() {
+        let mut i = from("hello");
+        i.col = 2; // between 'e' and 'l'
+        i.backspace();
+        assert_eq!(i.text(), "hllo");
+        assert_eq!(i.col, 1);
+    }
+
+    #[test]
+    fn backspace_handles_multibyte() {
+        let mut i = from("café");
+        i.backspace();
+        assert_eq!(i.text(), "caf");
+        assert_eq!(i.col, 3);
+    }
+
+    #[test]
+    fn backspace_at_col_zero_merges_lines() {
+        let mut i = Input::new();
+        i.lines = vec!["foo".to_string(), "bar".to_string()];
+        i.line = 1;
+        i.col = 0;
+        i.backspace();
+        assert_eq!(i.text(), "foobar");
+        assert_eq!(i.line, 0);
+        assert_eq!(i.col, 3);
     }
 }

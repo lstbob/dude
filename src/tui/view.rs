@@ -76,7 +76,14 @@ fn render_history(frame: &mut Frame, app: &App, area: Rect) {
             Role::Assistant => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
         };
         all_lines.push(Line::styled(format!("{}:", msg.role.label()), header_style));
-        for w in wrap_text(&msg.content, width) {
+        // Display-only flavor: Walter always opens with "Dude, ...", and The
+        // Dude replies with "Walter, ...". The raw text is what is sent to /
+        // received from the model.
+        let display_content = match msg.role {
+            Role::User => format!("Dude, {}", msg.content),
+            Role::Assistant => format!("Walter, {}", msg.content),
+        };
+        for w in wrap_text(&display_content, width) {
             let style = match msg.role {
                 Role::User => Style::default().fg(Color::DarkGray),
                 Role::Assistant => Style::default(),
