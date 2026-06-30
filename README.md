@@ -71,8 +71,11 @@ Inside the TUI:
 |----------------------|------------------------------|
 | `Enter`              | send the prompt              |
 | `Alt+Enter` / `Shift+Enter` | insert a newline       |
-| `←` `→` `↑` `↓`      | move the cursor              |
+| `Backspace` / `Ctrl+H` | delete char before cursor  |
+| `Delete`             | delete char after cursor     |
+| `Ctrl+W`             | delete the previous word     |
 | `Ctrl+U`             | clear the input box          |
+| `←` `→` `↑` `↓`      | move the cursor              |
 | `Esc`                | quit                         |
 
 The status bar shows the active provider, remaining turns, and a "Loading…"

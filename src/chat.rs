@@ -19,8 +19,8 @@ pub enum Role {
 impl Role {
     pub fn label(self) -> &'static str {
         match self {
-            Role::User => "you",
-            Role::Assistant => "dude",
+            Role::User => "Walter",
+            Role::Assistant => "The Dude",
         }
     }
 }
