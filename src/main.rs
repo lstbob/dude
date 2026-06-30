@@ -5,6 +5,7 @@ mod tui;
 
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
+use std::io::IsTerminal;
 
 const ABOUT: &str = "dude — short, model-agnostic AI chats in the terminal.\n\n\
                      It is NOT an agent: just quick info while you code/research. \
@@ -16,6 +17,12 @@ const ABOUT: &str = "dude — short, model-agnostic AI chats in the terminal.\n\
 struct Cli {
     #[command(subcommand)]
     command: Option<Cmd>,
+
+    /// One-shot print mode: send the prompt, print the answer to stdout, exit.
+    /// No TUI. Also auto-engaged when stdout is not a TTY (e.g. `:!` in nvim,
+    /// pipes, CI), so `:!dude "what year is it?"` Just Works.
+    #[arg(short = 'p', long = "print")]
+    print_mode: bool,
 
     /// Prompt text; args after the first are joined with spaces. Ignored when
     /// a subcommand (e.g. `config`) is present.
@@ -49,17 +56,65 @@ async fn main() -> Result<()> {
         None => {
             if cli.prompt.is_empty() {
                 println!("{}", ABOUT);
-                println!("\nUsage: dude <prompt...>\n       dude config [key] [value]");
+                println!("\nUsage: dude [OPTIONS] <prompt...>\n       dude config [key] [value]");
                 return Ok(());
             }
-            run_chat(cli.prompt.join(" ")).await
+            run_chat(cli.prompt.join(" "), cli.print_mode).await
         }
     }
 }
 
-async fn run_chat(prompt: String) -> Result<()> {
-    let mut cfg = config::Config::load()?;
+async fn run_chat(prompt: String, force_print: bool) -> Result<()> {
+    // Auto-engaging print mode when stdout isn't a TTY is what makes `dude`
+    // usable from contexts that hand us pipes instead of a terminal — most
+    // notably nvim's `:!dude "..."`, but also plain shell pipes and CI.
+    let print_mode = force_print || !std::io::stdout().is_terminal();
 
+    let cfg = config::Config::load()?;
+
+    if print_mode {
+        return run_print(cfg, prompt).await;
+    }
+
+    run_tui(cfg, prompt).await
+}
+
+/// One-shot mode: send a single prompt, print the answer to stdout, exit.
+/// Used by `dude -p`, pipes, and nvim's `:!`.
+async fn run_print(cfg: config::Config, prompt: String) -> Result<()> {
+    if cfg.active_key().is_none() {
+        // Can't run the interactive wizard without a TTY; point the user at
+        // the config command instead.
+        eprintln!(
+            "No {} API key set. Run in a terminal: dude config {} <key>",
+            cfg.llm_provider,
+            cfg.llm_provider
+        );
+        eprintln!("Gemini is free: {}", config::gemini_free_key_url());
+        bail!("no api key configured");
+    }
+
+    let provider = provider::from_config(&cfg)?;
+    let mut chat = chat::Chat::new();
+    if !chat.push_user(prompt) {
+        println!("{}", chat::FUNNY_LIMIT_MESSAGE);
+        return Ok(());
+    }
+    match provider.complete(&chat.messages).await {
+        Ok(text) => {
+            println!("The Dude: {}", text.trim());
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("dude error: {e}");
+            bail!(e)
+        }
+    }
+}
+
+/// Interactive TUI mode (real terminal only). Runs the setup wizard if no key
+/// is configured, then launches the ratatui app.
+async fn run_tui(mut cfg: config::Config, prompt: String) -> Result<()> {
     // If no key is set for the active provider, run the setup wizard.
     if cfg.active_key().is_none() {
         match setup_wizard(&mut cfg) {

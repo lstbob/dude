@@ -65,6 +65,26 @@ store in `~/.config/dude/config.json`. Then the TUI starts with your prompt.
 dude <prompt...>
 ```
 
+### One-shot / print mode
+
+For quick lookups without entering the TUI — especially from editors that run
+commands with piped stdout (e.g. nvim's `:!dude "..."`):
+
+```bash
+dude -p "what year is it right now?"     # force print mode
+```
+
+Print mode is **auto-engaged whenever stdout is not a TTY**, so this Just Works
+in nvim:
+
+```vim
+:!dude "what year is it right now?"
+```
+
+The answer is printed to stdout (prefixed with `The Dude:`) and `dude` exits —
+no alternate screen, no raw mode, no follow-ups. If no API key is configured
+it prints a hint pointing at `dude config` and exits non-zero.
+
 Inside the TUI:
 
 | Key                  | Action                       |
