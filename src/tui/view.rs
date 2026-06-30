@@ -9,8 +9,11 @@ use crate::tui::App;
 
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-/// Word-wrap a string into lines of at most `width` display columns
-/// (a naive word-boundary wrap, good enough for our short chats).
+/// Word-wrap a string into lines of at most `width` columns, counting Unicode
+/// scalar values rather than bytes (a naive word-boundary wrap, good enough for
+/// our short chats). Lengths are measured in `chars()` so a hard split never
+/// lands mid-codepoint — `split_at` on a byte offset would otherwise panic on
+/// multibyte content (CJK, emoji, accents).
 pub fn wrap_text(content: &str, width: usize) -> Vec<String> {
     let width = width.max(1);
     let mut out = Vec::new();
@@ -20,22 +23,34 @@ pub fn wrap_text(content: &str, width: usize) -> Vec<String> {
             continue;
         }
         let mut current = String::new();
+        let mut current_len = 0; // length of `current` in chars
         for word in raw_line.split_whitespace() {
+            let word_len = word.chars().count();
             if current.is_empty() {
                 current = word.to_string();
-            } else if current.len() + 1 + word.len() <= width {
+                current_len = word_len;
+            } else if current_len + 1 + word_len <= width {
                 current.push(' ');
                 current.push_str(word);
+                current_len += 1 + word_len;
             } else {
                 out.push(current);
                 current = word.to_string();
+                current_len = word_len;
             }
         }
-        // handle words that overflow by themselves (very long token)
-        while current.len() > width {
-            let (head, tail) = current.split_at(width);
-            out.push(head.to_string());
-            current = tail.to_string();
+        // handle words that overflow by themselves (very long token); split on
+        // a char boundary at `width` chars, not `width` bytes.
+        while current_len > width {
+            let split_byte = current
+                .char_indices()
+                .nth(width)
+                .map(|(i, _)| i)
+                .unwrap_or(current.len());
+            let tail = current.split_off(split_byte);
+            out.push(current);
+            current = tail;
+            current_len -= width;
         }
         out.push(current);
     }
@@ -160,3 +175,32 @@ fn render_input(frame: &mut Frame, app: &App, area: Rect) {
 
 #[allow(dead_code)]
 fn _unused_chat(_c: &Chat) {}
+
+#[cfg(test)]
+mod tests {
+    use super::wrap_text;
+
+    #[test]
+    fn long_multibyte_token_does_not_panic() {
+        // A long unbroken CJK run (no spaces) is a single "word" longer than
+        // the width; previously this split mid-codepoint and panicked.
+        let s = "技".repeat(50);
+        let lines = wrap_text(&s, 10);
+        assert!(lines.iter().all(|l| l.chars().count() <= 10));
+        assert_eq!(lines.concat(), s);
+    }
+
+    #[test]
+    fn emoji_token_does_not_panic() {
+        let s = "🦀".repeat(20);
+        let lines = wrap_text(&s, 5);
+        assert!(lines.iter().all(|l| l.chars().count() <= 5));
+        assert_eq!(lines.concat(), s);
+    }
+
+    #[test]
+    fn ascii_word_wrap_unchanged() {
+        let lines = wrap_text("the quick brown fox", 9);
+        assert_eq!(lines, vec!["the quick", "brown fox"]);
+    }
+}

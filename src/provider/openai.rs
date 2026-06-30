@@ -3,7 +3,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use crate::chat::{Message, Role};
-use crate::provider::{Fut, Provider};
+use crate::provider::{http_client, truncate_body, Fut, Provider};
 
 const DEFAULT_MODEL: &str = "gpt-4o-mini";
 const ENDPOINT: &str = "https://api.openai.com/v1/chat/completions";
@@ -52,7 +52,7 @@ impl OpenAi {
         Ok(Self {
             api_key,
             model: model.unwrap_or(DEFAULT_MODEL).to_string(),
-            client: Client::new(),
+            client: http_client()?,
         })
     }
 }
@@ -88,10 +88,10 @@ impl Provider for OpenAi {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
             if !status.is_success() {
-                return Err(anyhow!("openai api {}: {}", status.as_u16(), body));
+                return Err(anyhow!("openai api {}: {}", status.as_u16(), truncate_body(&body)));
             }
             let parsed: Response = serde_json::from_str(&body)
-                .map_err(|e| anyhow!("parsing openai response: {e}\nbody: {body}"))?;
+                .map_err(|e| anyhow!("parsing openai response: {e}\nbody: {}", truncate_body(&body)))?;
             parsed
                 .choices
                 .into_iter()

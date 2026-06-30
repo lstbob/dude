@@ -1,7 +1,9 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
+use reqwest::Client;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::chat::Message;
 
@@ -9,6 +11,28 @@ pub mod anthropic;
 pub mod gemini;
 pub mod groq;
 pub mod openai;
+
+/// Shared `reqwest` client with sane timeouts. Without these a stalled or
+/// half-open connection would hang the request forever (the TUI stays
+/// responsive since the call is spawned, but the answer never arrives).
+fn http_client() -> Result<Client> {
+    Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(60))
+        .build()
+        .context("building http client")
+}
+
+/// Cap an error-response body before it is surfaced to the user, so an
+/// unexpectedly large or binary body can't flood the terminal/stdout.
+fn truncate_body(body: &str) -> String {
+    const MAX_CHARS: usize = 1000;
+    if body.chars().count() <= MAX_CHARS {
+        return body.to_string();
+    }
+    let truncated: String = body.chars().take(MAX_CHARS).collect();
+    format!("{truncated}… (response truncated)")
+}
 
 /// A single completion against a chat history. Implementations translate the
 /// shared `Vec<Message>` into the provider's native request shape, make an

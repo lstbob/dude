@@ -3,7 +3,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use crate::chat::Message;
-use crate::provider::{Fut, Provider};
+use crate::provider::{http_client, truncate_body, Fut, Provider};
 
 const DEFAULT_MODEL: &str = "gemini-2.5-flash";
 const ENDPOINT: &str = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -63,7 +63,7 @@ impl Gemini {
         Ok(Self {
             api_key,
             model: model.unwrap_or(DEFAULT_MODEL).to_string(),
-            client: Client::new(),
+            client: http_client()?,
         })
     }
 }
@@ -87,10 +87,12 @@ impl Provider for Gemini {
                 .collect();
 
             let url = format!("{}/{}:generateContent", ENDPOINT, self.model);
+            // Send the key as a header rather than a `?key=` query param so it
+            // doesn't end up in proxy/server access logs or shell history.
             let resp = self
                 .client
                 .post(&url)
-                .query(&[("key", &self.api_key)])
+                .header("x-goog-api-key", &self.api_key)
                 .json(&Request { contents })
                 .send()
                 .await
@@ -98,10 +100,10 @@ impl Provider for Gemini {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
             if !status.is_success() {
-                return Err(anyhow!("gemini api {}: {}", status.as_u16(), body));
+                return Err(anyhow!("gemini api {}: {}", status.as_u16(), truncate_body(&body)));
             }
             let parsed: Response = serde_json::from_str(&body)
-                .map_err(|e| anyhow!("parsing gemini response: {e}\nbody: {body}"))?;
+                .map_err(|e| anyhow!("parsing gemini response: {e}\nbody: {}", truncate_body(&body)))?;
             let text = parsed
                 .candidates
                 .into_iter()
